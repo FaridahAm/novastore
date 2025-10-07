@@ -1,48 +1,130 @@
 pipeline {
   agent any
-  options { timestamps() }
-  environment {
-    SITE_DIR   = 'site'
-    BUILD_DIR  = 'build'
-    DEPLOY_DIR = '/var/www/site'
+  
+  options {
+    timestamps()
+    timeout(time: 30, unit: 'MINUTES')
   }
+
+  environment {
+    BUILD_DIR = 'dist'
+    NODE_VERSION = '18'
+  }
+
   stages {
     stage('Checkout') {
-      steps { checkout scm }
-    }
-    stage('Validate') {
       steps {
-        sh '''
-          set -euo 
-          echo "No linters configured yet; skipping."
-        '''
+        echo 'Checking out code...'
+        checkout scm
       }
     }
-    stage('Package') {
+
+    stage('Setup Node.js') {
       steps {
-        sh '''
-          set -euo 
-          rm -rf "${BUILD_DIR}"
-          mkdir -p "${BUILD_DIR}"
-          cp -r "${SITE_DIR}/." "${BUILD_DIR}/"
-        '''
-        archiveArtifacts artifacts: "${BUILD_DIR}/", fingerprint: true
+        echo 'Checking Node.js and npm versions...'
+        script {
+          if (isUnix()) {
+            sh 'node --version'
+            sh 'npm --version'
+          } else {
+            bat 'node --version'
+            bat 'npm --version'
+          }
+        }
       }
     }
-    stage('Deploy to Nginx') {
+
+    stage('Install Dependencies') {
       steps {
-        sh '''
-          set -euo 
-          mkdir -p "${DEPLOY_DIR}"
-          rm -rf "${DEPLOY_DIR:?}/"*
-          cp -r "${BUILD_DIR}/." "${DEPLOY_DIR}/"
-        '''
+        echo 'Installing dependencies...'
+        script {
+          if (isUnix()) {
+            sh 'npm ci'
+          } else {
+            bat 'npm ci'
+          }
+        }
+      }
+    }
+
+    stage('Lint & Test') {
+      parallel {
+        stage('Lint Code') {
+          steps {
+            echo 'Running ESLint...'
+            script {
+              if (isUnix()) {
+                sh 'npm run lint'
+              } else {
+                bat 'npm run lint'
+              }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Build React App') {
+      steps {
+        echo 'Building React application...'
+        script {
+          if (isUnix()) {
+            sh 'npm run build'
+          } else {
+            bat 'npm run build'
+          }
+        }
+        archiveArtifacts artifacts: "${BUILD_DIR}/**/*", allowEmptyArchive: false, fingerprint: true
+      }
+    }
+
+    stage('Deploy') {
+      when {
+        anyOf {
+          branch 'main'
+          branch 'master'
+        }
+      }
+      steps {
+        echo 'Preparing deployment artifacts...'
+        script {
+          if (isUnix()) {
+            sh '''
+              echo "🚀 Deploying NovaStore React App..."
+              ls -la ${BUILD_DIR}/
+              echo "Build artifacts ready for deployment"
+            '''
+          } else {
+            bat '''
+              echo "🚀 Deploying NovaStore React App..."
+              dir %BUILD_DIR%
+              echo "Build artifacts ready for deployment"
+            '''
+          }
+        }
       }
     }
   }
+
   post {
+    always {
+      echo 'Cleaning up workspace...'
+      cleanWs()
+    }
+    
     success {
-      echo 'Deployed. Open http://localhost:8081'
+      echo '✅ NovaStore React app built successfully!'
+      echo '🎉 Build completed without errors'
+      echo '📦 Artifacts archived and ready for deployment'
+    }
+    
+    failure {
+      echo '❌ Build failed!'
+      echo '🔍 Check the logs above for error details'
+    }
+    
+    unstable {
+      echo '⚠️ Build completed with warnings'
     }
   }
 }
