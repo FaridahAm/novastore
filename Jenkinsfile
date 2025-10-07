@@ -47,17 +47,12 @@ pipeline {
 
     stage('🔧 Setup Node.js') {
       steps {
-        echo '🔧 Verifying Node.js environment...'
+        echo '🔧 Verifying Node.js environment (via Docker)...'
         sh '''
-          echo "✅ Node.js version: $(node --version)"
-          echo "✅ npm version: $(npm --version)"
+          docker run --rm -v "$PWD":/app -w /app node:18-alpine node --version
+          docker run --rm -v "$PWD":/app -w /app node:18-alpine npm --version
           echo "📁 Working directory: $(pwd)"
           echo "👤 Current user: $(whoami)"
-          
-          # Ensure we have a proper npm cache directory
-          mkdir -p /tmp/.npm
-          npm config set cache /tmp/.npm
-          
           echo "🔧 Node.js environment ready!"
         '''
       }
@@ -65,18 +60,9 @@ pipeline {
 
     stage('📦 Install Dependencies') {
       steps {
-        echo '📦 Installing project dependencies...'
+        echo '📦 Installing project dependencies (via Docker)...'
         sh '''
-          echo "🔄 Starting dependency installation..."
-          
-          # Set npm cache and other configurations for Docker environment
-          npm config set cache /tmp/.npm
-          npm config set user 0
-          npm config set unsafe-perm true
-          
-          # Install dependencies using npm ci for faster, reliable builds
-          npm ci --only=production=false
-          
+          docker run --rm -v "$PWD":/app -w /app node:18-alpine npm ci --only=production=false
           echo "📊 Dependency installation completed successfully!"
           echo "📁 node_modules created: $(ls -la node_modules | wc -l) entries"
         '''
@@ -87,10 +73,10 @@ pipeline {
       parallel {
         stage('ESLint Analysis') {
           steps {
-            echo '🔍 Running ESLint code analysis...'
+            echo '🔍 Running ESLint code analysis (via Docker)...'
             script {
               try {
-                sh 'npm run lint'
+                sh 'docker run --rm -v "$PWD":/app -w /app node:18-alpine npm run lint'
                 echo '✅ ESLint analysis passed'
               } catch (Exception e) {
                 echo '⚠️ ESLint found issues, but continuing build...'
@@ -102,10 +88,10 @@ pipeline {
         
         stage('Security Audit') {
           steps {
-            echo '🛡️ Running npm security audit...'
+            echo '🛡️ Running npm security audit (via Docker)...'
             script {
               try {
-                sh 'npm audit --audit-level moderate || echo "Security audit completed with warnings"'
+                sh 'docker run --rm -v "$PWD":/app -w /app node:18-alpine npm audit --audit-level moderate || echo "Security audit completed with warnings"'
                 echo '✅ Security audit completed'
               } catch (Exception e) {
                 echo '⚠️ Security vulnerabilities found, please review'
@@ -119,33 +105,27 @@ pipeline {
 
     stage('🏗️ Build Application') {
       steps {
-        echo '🏗️ Building NovaStore React application...'
+        echo '🏗️ Building NovaStore React application (via Docker)...'
         sh '''
-          echo "🔨 Starting Vite build process..."
-          npm run build
-          
+          docker run --rm -v "$PWD":/app -w /app node:18-alpine npm run build
           echo "📊 Build Statistics:"
           if [ -d "${BUILD_DIR}" ]; then
             echo "✅ Build directory created successfully!"
             ls -la ${BUILD_DIR}/
             echo "📦 Total build size: $(du -sh ${BUILD_DIR} | cut -f1)"
-            
             echo "📁 Generated files:"
             find ${BUILD_DIR} -type f -name "*.html" -o -name "*.js" -o -name "*.css" | head -10
-            
             echo "📊 File count: $(find ${BUILD_DIR} -type f | wc -l) files"
           else
             echo "❌ Build directory not found!"
             exit 1
           fi
         '''
-        
         // Archive build artifacts
         archiveArtifacts artifacts: "${BUILD_DIR}/**/*", 
                         allowEmptyArchive: false, 
                         fingerprint: true,
                         onlyIfSuccessful: true
-        
         echo '✅ Build artifacts archived successfully'
       }
     }
