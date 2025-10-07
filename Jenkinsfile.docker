@@ -1,0 +1,110 @@
+pipeline {
+  agent {
+    docker {
+      image 'node:18-alpine'
+      args '-v /var/run/docker.sock:/var/run/docker.sock'
+    }
+  }
+  
+  options {
+    timestamps()
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  environment {
+    BUILD_DIR = 'dist'
+    CI = 'true'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        echo 'Checking out code...'
+        checkout scm
+      }
+    }
+
+    stage('Setup Environment') {
+      steps {
+        echo 'Checking Node.js and npm versions...'
+        sh '''
+          node --version
+          npm --version
+          echo "Working directory: $(pwd)"
+          ls -la
+        '''
+      }
+    }
+
+    stage('Install Dependencies') {
+      steps {
+        echo 'Installing dependencies...'
+        sh '''
+          npm ci --only=production=false
+          echo "Dependencies installed successfully"
+        '''
+      }
+    }
+
+    stage('Lint Code') {
+      steps {
+        echo 'Running ESLint...'
+        sh 'npm run lint'
+      }
+    }
+
+    stage('Build React App') {
+      steps {
+        echo 'Building React application...'
+        sh '''
+          npm run build
+          echo "Build completed. Checking output..."
+          ls -la ${BUILD_DIR}/
+        '''
+        archiveArtifacts artifacts: "${BUILD_DIR}/**/*", allowEmptyArchive: false, fingerprint: true
+      }
+    }
+
+    stage('Deploy Preparation') {
+      when {
+        anyOf {
+          branch 'main'
+          branch 'master'
+        }
+      }
+      steps {
+        echo 'Preparing deployment artifacts...'
+        sh '''
+          echo "🚀 NovaStore React App Build Complete!"
+          echo "📦 Build Size:"
+          du -sh ${BUILD_DIR}/
+          echo "📂 Build Contents:"
+          find ${BUILD_DIR} -type f | head -10
+          echo "✅ Artifacts ready for deployment"
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      echo 'Pipeline execution completed'
+    }
+    
+    success {
+      echo '✅ NovaStore React app built successfully!'
+      echo '🎉 Build completed without errors'
+      echo '📦 Artifacts archived and ready for deployment'
+      echo '🌐 Your app is ready to be deployed!'
+    }
+    
+    failure {
+      echo '❌ Build failed!'
+      echo '🔍 Check the logs above for error details'
+    }
+    
+    unstable {
+      echo '⚠️ Build completed with warnings'
+    }
+  }
+}
